@@ -109,3 +109,26 @@ sys_trace(void)
 
   return 0;
 }
+
+uint64 knumfree();
+int numproc();
+#include "sysinfo.h"
+
+// collects information about the running system and save it into user struct
+uint64
+sys_sysinfo(void)
+{
+  uint64 infoaddr; // user pointer to struct sysinfo
+  struct sysinfo info; // local sysinfo struct
+
+  if(argaddr(0, &infoaddr) < 0)
+    return -1;
+  
+  info.freemem = knumfree();
+  info.nproc = numproc();
+
+  if(copyout(myproc()->pagetable, infoaddr, (char *)&info, sizeof(info)) < 0)
+      return -1;
+
+  return 0;
+}

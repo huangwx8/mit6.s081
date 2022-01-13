@@ -695,3 +695,15 @@ procdump(void)
     printf("\n");
   }
 }
+
+// traversal `proc` and return number of existing processes
+uint64
+numproc(void)
+{
+  uint64 n_proc = 0;
+  for(struct proc *p = proc; p < &proc[NPROC]; p++){
+    if(p->state != UNUSED)
+      n_proc++;
+  }
+  return n_proc;
+}
