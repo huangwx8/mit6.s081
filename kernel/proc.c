@@ -113,6 +113,16 @@ found:
     return 0;
   }
 
+  // A kernel page table copy
+  p->kpagetable = alloc_kpagetable();
+
+  char *pa = kalloc();
+  if(pa == 0)
+    panic("kalloc");
+  uint64 va = KSTACK((int) (p - proc));
+  uvmmap(p->kpagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = va;
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -139,6 +149,21 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+
+  // free kstack, and delete its entry
+  if (p->kstack)
+  {
+    uvmunmap(p->kpagetable, p->kstack, 1, 1);
+  }
+  p->kstack = 0;
+
+  // delete all other mappings to kernel physical memory
+  if(p->kpagetable)
+  {
+    free_kpagetable(p->kpagetable);
+  }
+  p->kpagetable = 0;
+  
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -473,11 +498,21 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        // Load kernel page table here. Though all p->kpagetable keep 
+        // indentical mapping for `Kernel text` segment, next instruction still goes to swtch() normally
+        extern pagetable_t kernel_pagetable;
+        w_satp(MAKE_SATP(p->kpagetable));
+        sfence_vma();
+
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
+
+        w_satp(MAKE_SATP(kernel_pagetable));
+        sfence_vma();
 
         found = 1;
       }

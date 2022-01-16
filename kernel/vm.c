@@ -6,6 +6,9 @@
 #include "defs.h"
 #include "fs.h"
 
+#include "spinlock.h"
+#include "proc.h"
+
 /*
  * the kernel's page table.
  */
@@ -131,8 +134,7 @@ kvmpa(uint64 va)
   uint64 off = va % PGSIZE;
   pte_t *pte;
   uint64 pa;
-  
-  pte = walk(kernel_pagetable, va, 0);
+  pte = walk(myproc()->kpagetable, va, 0);
   if(pte == 0)
     panic("kvmpa");
   if((*pte & PTE_V) == 0)
@@ -442,6 +444,7 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 }
 
 #define NUM_PTE_ONE_PAGE 512 /*(PGSIZE / sizeof(pte_t))*/
+#define VMPRINT_MAX_RECURSION_DEPTH 2
 
 void vmprint_recursive(pagetable_t pagetable, int depth) 
 {
@@ -465,7 +468,7 @@ void vmprint_recursive(pagetable_t pagetable, int depth)
       uint64 pa = PTE2PA(pte);
       printf("%s%d: pte %p pa %p\n", indentation[depth], i, pte, pa);
       // recursion when not leaf 
-      if (depth < 2)
+      if (depth < VMPRINT_MAX_RECURSION_DEPTH)
       {
         vmprint_recursive((pagetable_t)pa, depth + 1);
       }
@@ -478,4 +481,46 @@ int vmprint(pagetable_t pagetable)
   printf("page table %p\n", pagetable);
   vmprint_recursive(pagetable, 0);
   return 1;
+}
+
+void
+uvmmap(pagetable_t pagetable, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+  if(mappages(pagetable, va, sz, pa, perm) != 0)
+    panic("mappages");
+}
+
+/*
+ * create a kernel page table for a process.
+ */
+pagetable_t
+alloc_kpagetable()
+{
+  pagetable_t kpagetable;
+
+  kpagetable = uvmcreate();
+
+  uvmmap(kpagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  uvmmap(kpagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  uvmmap(kpagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  uvmmap(kpagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+  uvmmap(kpagetable, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+  uvmmap(kpagetable, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+  uvmmap(kpagetable, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+
+  return kpagetable;
+}
+
+void
+free_kpagetable(pagetable_t kpagetable)
+{
+  uvmunmap(kpagetable, UART0, PGSIZE / PGSIZE, 0);
+  uvmunmap(kpagetable, VIRTIO0, PGSIZE / PGSIZE, 0);
+  uvmunmap(kpagetable, CLINT, 0x10000 / PGSIZE, 0);
+  uvmunmap(kpagetable, PLIC, 0x400000 / PGSIZE, 0);
+  uvmunmap(kpagetable, KERNBASE, ((uint64)etext-KERNBASE) / PGSIZE, 0);
+  uvmunmap(kpagetable, (uint64)etext, (PHYSTOP-(uint64)etext) / PGSIZE, 0);
+  uvmunmap(kpagetable, TRAMPOLINE, PGSIZE / PGSIZE, 0);
+
+  freewalk(kpagetable);
 }

@@ -181,6 +181,9 @@ int             copyinstr(pagetable_t, char *, uint64, uint64);
 
 // pagetable lab
 int             vmprint(pagetable_t);
+void            uvmmap(pagetable_t, uint64, uint64, uint64, int);
+pagetable_t     alloc_kpagetable();
+void            free_kpagetable(pagetable_t);
 
 // plic.c
 void            plicinit(void);
