@@ -440,3 +440,42 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+#define NUM_PTE_ONE_PAGE 512 /*(PGSIZE / sizeof(pte_t))*/
+
+void vmprint_recursive(pagetable_t pagetable, int depth) 
+{
+  // depth -> indentation format static table
+  static const char* indentation[] = 
+  {
+    "..",
+    ".. ..",
+    ".. .. .."
+  };
+
+  // recursion calls self with pa as new pagetable
+  for (int i = 0; i < NUM_PTE_ONE_PAGE; i++)
+  {
+    // look up pte
+    pte_t pte = pagetable[i];
+    // valid 
+    if (pte & PTE_V) 
+    {
+      // convert pte to pa, then show them
+      uint64 pa = PTE2PA(pte);
+      printf("%s%d: pte %p pa %p\n", indentation[depth], i, pte, pa);
+      // recursion when not leaf 
+      if (depth < 2)
+      {
+        vmprint_recursive((pagetable_t)pa, depth + 1);
+      }
+    }
+  }
+}
+
+int vmprint(pagetable_t pagetable) 
+{
+  printf("page table %p\n", pagetable);
+  vmprint_recursive(pagetable, 0);
+  return 1;
+}
