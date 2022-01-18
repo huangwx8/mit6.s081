@@ -185,6 +185,14 @@ void            uvmmap(pagetable_t, uint64, uint64, uint64, int);
 pagetable_t     alloc_kpagetable();
 void            free_kpagetable(pagetable_t);
 
+#define         DEBUG_PAGETABLE     0
+
+int             uvmweakcopyrange(pagetable_t old, pagetable_t new, uint64 va_start, uint64 va_end);
+void            uvmweakfreerange(pagetable_t pagetable, uint64 va_start, uint64 va_end);
+
+int             copyin_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len);
+int             copyinstr_new(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max);
+
 // plic.c
 void            plicinit(void);
 void            plicinithart(void);

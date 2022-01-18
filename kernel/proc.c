@@ -146,6 +146,9 @@ found:
 static void
 freeproc(struct proc *p)
 {
+#if DEBUG_PAGETABLE
+  printf("freeproc\n");
+#endif
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
@@ -157,6 +160,8 @@ freeproc(struct proc *p)
   }
   p->kstack = 0;
 
+  // page table lab: delete user space page table copy in kpagetable
+  uvmweakfreerange(p->kpagetable, 0, p->sz);
   // delete all other mappings to kernel physical memory
   if(p->kpagetable)
   {
@@ -236,6 +241,9 @@ uchar initcode[] = {
 void
 userinit(void)
 {
+#if DEBUG_PAGETABLE
+  printf("userinit\n");
+#endif
   struct proc *p;
 
   p = allocproc();
@@ -245,6 +253,9 @@ userinit(void)
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
+
+  // page table lab: add same mappings to kpagetable
+  uvmweakcopyrange(p->pagetable, p->kpagetable, 0, p->sz);
 
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
@@ -263,16 +274,31 @@ userinit(void)
 int
 growproc(int n)
 {
+#if DEBUG_PAGETABLE
+  printf("growproc %d\n", n);
+#endif
   uint sz;
   struct proc *p = myproc();
 
   sz = p->sz;
+
+  // page table lab: prevent process's kernel pagetable low address
+  if (sz >= PLIC || sz + n >= PLIC) 
+  {
+    return -1;
+  }
+
+  // page table lab: synchonize the uvmalloc / uvmdealloc
   if(n > 0){
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    if (uvmweakcopyrange(p->pagetable, p->kpagetable, p->sz, sz) != 0) {
+      return -1;
+    }
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
+    uvmweakfreerange(p->kpagetable, sz, p->sz);
   }
   p->sz = sz;
   return 0;
@@ -283,6 +309,9 @@ growproc(int n)
 int
 fork(void)
 {
+#if DEBUG_PAGETABLE
+  printf("fork\n");
+#endif
   int i, pid;
   struct proc *np;
   struct proc *p = myproc();
@@ -299,6 +328,9 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+
+  // page table lab: do same mapping to kpagetable
+  uvmweakcopyrange(np->pagetable, np->kpagetable, 0, np->sz);
 
   np->parent = p;
 

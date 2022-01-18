@@ -381,7 +381,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
-  uint64 n, va0, pa0;
+  /* uint64 n, va0, pa0;
 
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
@@ -397,7 +397,8 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
     dst += n;
     srcva = va0 + PGSIZE;
   }
-  return 0;
+  return 0; */
+  return copyin_new(pagetable, dst, srcva, len);
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -407,7 +408,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
-  uint64 n, va0, pa0;
+  /*uint64 n, va0, pa0;
   int got_null = 0;
 
   while(got_null == 0 && max > 0){
@@ -440,7 +441,8 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return 0;
   } else {
     return -1;
-  }
+  }*/
+  return copyinstr_new(pagetable, dst, srcva, max);
 }
 
 #define NUM_PTE_ONE_PAGE 512 /*(PGSIZE / sizeof(pte_t))*/
@@ -502,7 +504,7 @@ alloc_kpagetable()
 
   uvmmap(kpagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
   uvmmap(kpagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
-  uvmmap(kpagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  //uvmmap(kpagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
   uvmmap(kpagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
   uvmmap(kpagetable, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
   uvmmap(kpagetable, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
@@ -516,11 +518,54 @@ free_kpagetable(pagetable_t kpagetable)
 {
   uvmunmap(kpagetable, UART0, PGSIZE / PGSIZE, 0);
   uvmunmap(kpagetable, VIRTIO0, PGSIZE / PGSIZE, 0);
-  uvmunmap(kpagetable, CLINT, 0x10000 / PGSIZE, 0);
+  //uvmunmap(kpagetable, CLINT, 0x10000 / PGSIZE, 0);
   uvmunmap(kpagetable, PLIC, 0x400000 / PGSIZE, 0);
   uvmunmap(kpagetable, KERNBASE, ((uint64)etext-KERNBASE) / PGSIZE, 0);
   uvmunmap(kpagetable, (uint64)etext, (PHYSTOP-(uint64)etext) / PGSIZE, 0);
   uvmunmap(kpagetable, TRAMPOLINE, PGSIZE / PGSIZE, 0);
 
   freewalk(kpagetable);
+}
+
+int
+uvmweakcopyrange(pagetable_t old, pagetable_t new, uint64 va_start, uint64 va_end)
+{
+#if DEBUG_PAGETABLE
+  printf("uvmweakcopyrange va_start = %p, va_end = %p\n", va_start, va_end);
+#endif
+
+  pte_t *pte;
+  uint64 pa, i;
+  uint flags;
+  if(va_start > va_end)
+    panic("uvmweakcopyrange: end precedes start");
+
+  va_start = PGROUNDUP(va_start);
+  for(i = va_start; i < va_end; i += PGSIZE){
+    if((pte = walk(old, i, 0)) == 0)
+      panic("uvmweakcopyrange: pte should exist");
+    if((*pte & PTE_V) == 0)
+      panic("uvmweakcopyrange: page not present");
+    pa = PTE2PA(*pte);
+    flags = PTE_FLAGS(*pte) & (~PTE_U);
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
+      panic("uvmweakcopyrange: mappages");
+    }
+  }
+  return 0;
+}
+
+void
+uvmweakfreerange(pagetable_t pagetable, uint64 va_start, uint64 va_end)
+{
+#if DEBUG_PAGETABLE
+  printf("uvmweakfreerange va_start = %p, va_end = %p\n", va_start, va_end);
+#endif
+  if(va_start > va_end)
+    panic("uvmweakcopyrange: end precedes start");
+
+  if(PGROUNDUP(va_start) < PGROUNDUP(va_end)) {
+    int npages = (PGROUNDUP(va_end) - PGROUNDUP(va_start)) / PGSIZE;
+    uvmunmap(pagetable, PGROUNDUP(va_start), npages, 0);
+  }
 }
