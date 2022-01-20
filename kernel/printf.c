@@ -122,6 +122,7 @@ panic(char *s)
   printf(s);
   printf("\n");
   panicked = 1; // freeze uart output from other CPUs
+  backtrace();
   for(;;)
     ;
 }
@@ -131,4 +132,33 @@ printfinit(void)
 {
   initlock(&pr.lock, "pr");
   pr.locking = 1;
+}
+
+void backtrace(void) 
+{
+  uint64 curfp;
+  uint64 retaddr;
+  uint64 maxfp;
+  uint64 minfp;
+
+  curfp = r_fp();
+  maxfp = PGROUNDUP(curfp);
+  minfp = PGROUNDDOWN(curfp);
+
+  printf("backtrace:\n");
+
+  while (1) 
+  {
+    retaddr = *(uint64*)(curfp - 8);
+    curfp = *(uint64*)(curfp - 16);
+    // is not the topest fp
+    if (curfp - 16 >= minfp && curfp <= maxfp)
+    {
+      printf("%p\n", retaddr);
+    }
+    else 
+    {
+      break;
+    }
+  }
 }
