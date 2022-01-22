@@ -440,3 +440,26 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+uint64
+uvmfakealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
+{
+  char *mem = 0;
+  uint64 a;
+  pte_t *pte;
+
+  if(newsz < oldsz)
+    return oldsz;
+
+  oldsz = PGROUNDUP(oldsz);
+  for(a = oldsz; a < newsz; a += PGSIZE){
+    // lab lazy
+    if((pte = walk(pagetable, a, 1)) == 0)
+      return -1;
+    if(*pte & PTE_V)
+      panic("remap");
+    // not valid by default
+    *pte = PA2PTE(mem) | PTE_W | PTE_X | PTE_R | PTE_U /*| PTE_V*/;
+  }
+  return newsz;
+}
