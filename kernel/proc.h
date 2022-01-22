@@ -80,6 +80,19 @@ struct trapframe {
   /* 280 */ uint64 t6;
 };
 
+enum alarmstate { WAITING, HANDLING };
+
+struct alarminfo
+{
+  uint64 interval;
+  uint64 expire;
+  uint64 handler;
+
+  enum alarmstate state;
+  struct context context;
+  struct trapframe trapframe;
+};
+
 enum procstate { UNUSED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 // Per-process state
@@ -103,4 +116,7 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  // lab traps
+  struct alarminfo alarm;
 };

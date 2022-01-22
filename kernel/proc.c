@@ -127,6 +127,9 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  // lab traps
+  memset(&p->alarm, 0, sizeof(p->alarm));
+
   return p;
 }
 
@@ -279,6 +282,9 @@ fork(void)
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
+
+  // copy alarm infomation
+  np->alarm = p->alarm;
 
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;

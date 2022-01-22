@@ -67,6 +67,28 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
+
+    // lab traps
+    // handle timer interrupt
+    if(which_dev == 2) 
+    {
+      if (ticks >= p->alarm.expire) 
+      {
+        if (p->alarm.state == WAITING) 
+        {
+          // disable other timer interrupt while handling
+          p->alarm.state = HANDLING;
+          // stash current context in trapframe
+          p->alarm.context = p->context;
+          p->alarm.trapframe = *p->trapframe;
+          // set resume address of userret
+          p->trapframe->epc = p->alarm.handler;
+        }
+        // update expire
+        p->alarm.expire = ticks + p->alarm.interval;
+      }
+    }
+
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
