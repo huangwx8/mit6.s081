@@ -128,7 +128,9 @@ found:
   p->context.sp = p->kstack + PGSIZE;
 
   // lab traps
-  memset(&p->alarm, 0, sizeof(p->alarm));
+  p->alarm.interval = 0;
+  p->alarm.expire = 0;
+  p->alarm.state = WAITING;
 
   return p;
 }

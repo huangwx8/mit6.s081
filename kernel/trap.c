@@ -72,7 +72,7 @@ usertrap(void)
     // handle timer interrupt
     if(which_dev == 2) 
     {
-      if (ticks >= p->alarm.expire) 
+      if (p->alarm.expire > 0 && ticks >= p->alarm.expire) 
       {
         if (p->alarm.state == WAITING) 
         {
