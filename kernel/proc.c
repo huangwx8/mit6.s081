@@ -274,6 +274,9 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+  // BEGIN LAB LAZY
+  np->stackbase = p->stackbase;
+  // END LAB LAZY
 
   np->parent = p;
 

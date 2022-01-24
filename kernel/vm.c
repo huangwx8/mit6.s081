@@ -334,11 +334,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       // BEGIN LAB LAZY
       // panic("uvmcopy: page not present");
       {
-        mem = (char*)PTE2PA(*pte);
-        flags = PTE_FLAGS(*pte);
-        if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+        pte_t* newpte;
+        if((newpte = walk(new, i, 1)) == 0)
           goto err;
-        }
+        *newpte = *pte;
+        continue;
       }
       // END LAB LAZY
     pa = PTE2PA(*pte);
@@ -382,8 +382,8 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     // BEGIN LAB LAZY
-    // if (uvmensurevalid(pagetable, va0) == 0)
-      // return -1;
+    if (uvmensurevalid(pagetable, va0) == 0)
+      return -1;
     // END LAB LAZY
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
@@ -411,8 +411,8 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
     // BEGIN LAB LAZY
-    // if (uvmensurevalid(pagetable, va0) == 0)
-      // return -1;
+    if (uvmensurevalid(pagetable, va0) == 0)
+      return -1;
     // END LAB LAZY
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
@@ -442,8 +442,8 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   while(got_null == 0 && max > 0){
     va0 = PGROUNDDOWN(srcva);
     // BEGIN LAB LAZY
-    // if (uvmensurevalid(pagetable, va0) == 0)
-      // return -1;
+    if (uvmensurevalid(pagetable, va0) == 0)
+      return -1;
     // END LAB LAZY
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
@@ -508,7 +508,7 @@ uvmintr(pagetable_t pagetable, uint64 va)
   struct proc *p = myproc();
   
   // out of user virtual memory
-  if (va > p->sz || va < p->stackbase) 
+  if (va >= p->sz || va < p->stackbase) 
   {
     return 0;
   }
@@ -531,6 +531,8 @@ uvmintr(pagetable_t pagetable, uint64 va)
 int
 uvmensurevalid(pagetable_t pagetable, uint64 va) 
 {
+  if(va >= MAXVA)
+    return 0;
   pte_t* pte = walk(pagetable, va, 0);
   if (pte == 0)
     return 0;
