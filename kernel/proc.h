@@ -103,4 +103,8 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  // LAB LAZY BEGIN
+  uint64 stackbase;
+  // LAB LAZY END
 };

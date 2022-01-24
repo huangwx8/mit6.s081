@@ -16,6 +16,10 @@ void kernelvec();
 
 extern int devintr();
 
+// BEGIN LAB LAZY
+extern int uvmtrap();
+// END LAB LAZY
+
 void
 trapinit(void)
 {
@@ -67,7 +71,15 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  }
+  // BEGIN LAB LAZY
+  else if (r_scause() == 13 || r_scause() == 15) 
+  {
+    if (uvmtrap() == 0) 
+      p->killed = 1;  
+  }
+  // END LAB LAZY
+  else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
@@ -144,9 +156,19 @@ kerneltrap()
     panic("kerneltrap: interrupts enabled");
 
   if((which_dev = devintr()) == 0){
-    printf("scause %p\n", scause);
-    printf("sepc=%p stval=%p\n", r_sepc(), r_stval());
-    panic("kerneltrap");
+    // BEGIN LAB LAZY
+    if (r_scause() == 13 || r_scause() == 15) 
+    {
+      if (uvmtrap() == 0) 
+        exit(-1);
+    }
+    else 
+    {
+      printf("scause %p\n", scause);
+      printf("sepc=%p stval=%p\n", r_sepc(), r_stval());
+      panic("kerneltrap");
+    }
+    // END LAB LAZY
   }
 
   // give up the CPU if this is a timer interrupt.
@@ -218,3 +240,13 @@ devintr()
   }
 }
 
+// BEGIN LAB LAZY
+int
+uvmtrap()
+{
+  struct proc *p = myproc();
+  uint64 va = r_stval();
+  // page fault handler
+  return uvmintr(p->pagetable, va);
+}
+// END LAB LAZY

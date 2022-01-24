@@ -186,4 +186,7 @@ void            virtio_disk_intr(void);
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
 
-uint64          uvmfakealloc(pagetable_t, uint64, uint64);
+// BEGIN LAB LAZY
+uint64          uvmlazyalloc(pagetable_t, uint64, uint64);
+int             uvmintr(pagetable_t, uint64); 
+// END LAB LAZY
