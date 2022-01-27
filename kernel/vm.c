@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -14,6 +16,12 @@ pagetable_t kernel_pagetable;
 extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
+
+// BEGIN LAB COW
+int copyoutcheck(pagetable_t, uint64);
+int uvmmirrow(pagetable_t, pagetable_t, uint64);
+int uvmrealize(pagetable_t, uint64);
+// END LAB COW
 
 /*
  * create a direct-map page table for the kernel.
@@ -308,13 +316,14 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
-  pte_t *pte;
-  uint64 pa, i;
-  uint flags;
-  char *mem;
+  //pte_t *pte;
+  uint64 /*pa, */i;
+  //uint flags;
+  //char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walk(old, i, 0)) == 0)
+    // BEGIN LAB COW
+    /*if((pte = walk(old, i, 0)) == 0)
       panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
@@ -326,12 +335,15 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
       kfree(mem);
       goto err;
-    }
+    }*/
+    if (uvmmirrow(old, new, i) == 0) 
+      goto err;
+    // END LAB COW
   }
   return 0;
 
  err:
-  uvmunmap(new, 0, i / PGSIZE, 1);
+  uvmunmap(new, 0, i / PGSIZE, /*1*/0);
   return -1;
 }
 
@@ -358,6 +370,10 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
+    // BEGIN LAB COW
+    if (copyoutcheck(pagetable, va0) == 0)
+      return -1;
+    // END LAB COW
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
@@ -440,3 +456,120 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+// BEGIN LAB COW
+
+struct pgrefs_t {
+  struct spinlock lock;
+  uint8 counts[MAX_PAGES];
+};
+
+/**
+ * shallow copy one pte to another pagetable
+ * both parent and child are read-only
+ */
+int uvmmirrow(pagetable_t old, pagetable_t new, uint64 va) 
+{
+  pte_t *pte;
+  uint64 pa;
+  uint flags;
+  extern struct pgrefs_t pgrefs;
+
+  va = PGROUNDDOWN(va);
+  if((pte = walk(old, va, 0)) == 0)
+    panic("uvmmirrow: pte should exist");
+  if((*pte & PTE_V) == 0)
+    panic("uvmmirrow: page not present");
+  pa = PTE2PA(*pte);
+  flags = (PTE_FLAGS(*pte) & (~PTE_W)) | (PTE_COW);
+  
+  // allow multiple ptes point at one physical address
+  if(mappages(new, va, PGSIZE, (uint64)pa, flags) != 0){
+    return 0;
+  }
+  // remove W flag, add cow flag
+  *pte = PA2PTE(pa) | flags;
+
+  // increase pa reference count
+  acquire(&pgrefs.lock);
+  pgrefs.counts[PA2IDX(pa)]++;
+  release(&pgrefs.lock);
+
+  return 1;
+}
+
+/**
+ * detach pte from common read-only physical page
+ * by allocate a fresh page for it
+ */
+int uvmrealize(pagetable_t pagetable, uint64 va) 
+{
+  pte_t *pte;
+  uint64 pa;
+  char *mem;
+  uint flags;
+  uint8 refc;
+  extern struct pgrefs_t pgrefs;
+
+  if (va >= MAXVA) return 0;
+  va = PGROUNDDOWN(va);
+
+  if((pte = walk(pagetable, va, 0)) == 0) 
+    panic("uvmrealize: no pte");
+  if ((*pte & PTE_V) == 0) 
+    panic("uvmrealize: page not present");
+  if (*pte & PTE_W) 
+    panic("uvmrealize: page writeable");
+  if ((*pte & PTE_COW) == 0) 
+    panic("uvmrealize: page not shareable");
+  pa = PTE2PA(*pte);
+  // remove cow flag, add W flag
+  flags = (PTE_FLAGS(*pte) & (~PTE_COW)) | PTE_W;
+
+  acquire(&pgrefs.lock);
+  refc = pgrefs.counts[PA2IDX(pa)];
+  release(&pgrefs.lock);
+
+  // unique, level up
+  if (refc == 1) {
+    // bind a new physical memory
+    *pte = PA2PTE(pa) | flags;
+    return 1;
+  }
+
+  if((mem = kalloc()) == 0){
+    return 0;
+  }
+  memmove(mem, (void*)pa, PGSIZE);
+  // bind a new physical memory
+  *pte = PA2PTE(mem) | flags;
+  // free the old one
+  kfree((void*)pa);
+
+  return 1;
+}
+
+/** page fault handler*/
+int uvmintr(pagetable_t pagetable, uint64 va) 
+{
+  return uvmrealize(pagetable, va);
+}
+
+/**
+ * check is the virtual address is writeable 
+ * if not, do uvmrealize
+ */
+int copyoutcheck(pagetable_t pagetable, uint64 va) 
+{
+  if(va >= MAXVA)
+    return 0;
+  pte_t* pte = walk(pagetable, va, 0);
+  if (pte == 0)
+    return 0;
+  if((*pte & PTE_V) == 0)
+    return 0;
+  if(*pte & PTE_W)
+    return 1;
+  return uvmrealize(pagetable, va);
+}
+// END LAB COW

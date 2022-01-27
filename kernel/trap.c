@@ -16,6 +16,10 @@ void kernelvec();
 
 extern int devintr();
 
+// BEGIN LAB COW
+extern int uvmtrap();
+// END LAB COW
+
 void
 trapinit(void)
 {
@@ -67,7 +71,14 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  } 
+  // BEGIN LAB COW
+  else if (r_scause() == 13 || r_scause() == 15) {
+    if (uvmtrap() == 0) 
+      p->killed = 1;
+  }
+  // END LAB COW
+  else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
@@ -218,3 +229,19 @@ devintr()
   }
 }
 
+// BEGIN LAB COW
+int
+uvmtrap()
+{
+  struct proc* p = myproc();
+  uint64 va = r_stval();
+  uint64 sp = p->trapframe->sp;
+
+  if (va >= MAXVA || va >= p->sz
+    || (va < sp && va >= PGROUNDDOWN(sp)- PGSIZE)) // hard coded stack test
+    return 0;
+  
+  // page fault handler
+  return uvmintr(p->pagetable, va);
+}
+// END LAB COW

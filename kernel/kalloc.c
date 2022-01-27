@@ -14,6 +14,15 @@ void freerange(void *pa_start, void *pa_end);
 extern char end[]; // first address after kernel.
                    // defined by kernel.ld.
 
+// BEGIN LAB COW
+struct pgrefs_t {
+  struct spinlock lock;
+  uint8 counts[MAX_PAGES];
+};
+
+struct pgrefs_t pgrefs;
+// END LAB COW
+
 struct run {
   struct run *next;
 };
@@ -26,6 +35,11 @@ struct {
 void
 kinit()
 {
+  // BEGIN LAB COW
+  initlock(&pgrefs.lock, "pgrefs");
+  memset(pgrefs.counts, 1, sizeof(pgrefs.counts));
+  // END LAB COW
+
   initlock(&kmem.lock, "kmem");
   freerange(end, (void*)PHYSTOP);
 }
@@ -50,6 +64,15 @@ kfree(void *pa)
 
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
+
+  // BEGIN LAB COW
+  acquire(&pgrefs.lock);
+  if ((--pgrefs.counts[PA2IDX(pa)]) > 0) {
+    release(&pgrefs.lock);
+    return;
+  }
+  release(&pgrefs.lock);
+  // END LAB COW
 
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
@@ -76,7 +99,13 @@ kalloc(void)
     kmem.freelist = r->next;
   release(&kmem.lock);
 
-  if(r)
+  if(r) {
     memset((char*)r, 5, PGSIZE); // fill with junk
+    // BEGIN LAB COW
+    acquire(&pgrefs.lock);
+    ++pgrefs.counts[PA2IDX(r)];
+    release(&pgrefs.lock);
+    // END LAB COW
+  }
   return (void*)r;
 }

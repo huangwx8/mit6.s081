@@ -185,3 +185,10 @@ void            virtio_disk_intr(void);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
+
+// BEGIN LAB COW
+int             uvmintr(pagetable_t, uint64);
+
+#define MAX_PAGES ((PHYSTOP - KERNBASE) / PGSIZE)
+#define PA2IDX(pa) (((uint64)pa - KERNBASE) / PGSIZE)
+// END LAB COW

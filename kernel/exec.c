@@ -114,6 +114,11 @@ exec(char *path, char **argv)
   p->sz = sz;
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp; // initial stack pointer
+
+  // BGEIN LAB LAZY
+  p->stackbase = stackbase;
+  // END LAB LAZY
+
   proc_freepagetable(oldpagetable, oldsz);
 
   return argc; // this ends up in a0, the first argument to main(argc, argv)

@@ -274,6 +274,9 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+  // BEGIN LAB COW
+  np->stackbase = p->stackbase;
+  // END LAB COW
 
   np->parent = p;
 
