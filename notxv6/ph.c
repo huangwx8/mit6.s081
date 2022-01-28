@@ -17,6 +17,26 @@ struct entry *table[NBUCKET];
 int keys[NKEYS];
 int nthread = 1;
 
+
+// basicly, a reader-writer problem
+// view https://en.wikipedia.org/wiki/Readers%E2%80%93writers_problem to acknowledge this solution
+
+// BEGIN LAB THREAD
+int rcounts[NBUCKET];
+pthread_mutex_t rcount_mutexs[NBUCKET];
+pthread_mutex_t table_locks[NBUCKET];
+
+void init_locks()
+{
+  for (int i = 0; i < NBUCKET; i++)
+  {
+    rcounts[i] = 0;
+    pthread_mutex_init(&rcount_mutexs[i], NULL);
+    pthread_mutex_init(&table_locks[i], NULL);
+  }
+}
+// END LAB THREAD
+
 double
 now()
 {
@@ -40,6 +60,10 @@ void put(int key, int value)
 {
   int i = key % NBUCKET;
 
+  // BEGIN LAB THREAD
+  pthread_mutex_lock(&table_locks[i]);
+  // END LAB THREAD
+
   // is the key already present?
   struct entry *e = 0;
   for (e = table[i]; e != 0; e = e->next) {
@@ -53,6 +77,10 @@ void put(int key, int value)
     // the new is new.
     insert(key, value, &table[i], table[i]);
   }
+
+  // BEGIN LAB THREAD
+  pthread_mutex_unlock(&table_locks[i]);
+  // END LAB THREAD
 }
 
 static struct entry*
@@ -60,11 +88,25 @@ get(int key)
 {
   int i = key % NBUCKET;
 
+  // BEGIN LAB THREAD
+  pthread_mutex_lock(&rcount_mutexs[i]);
+  if (++rcounts[i] == 1) {
+    pthread_mutex_lock(&table_locks[i]);
+  }
+  pthread_mutex_unlock(&rcount_mutexs[i]);
+  // END LAB THREAD
 
   struct entry *e = 0;
   for (e = table[i]; e != 0; e = e->next) {
     if (e->key == key) break;
   }
+
+  // BEGIN LAB THREAD
+  pthread_mutex_lock(&rcount_mutexs[i]);
+  if (--rcounts[i] == 0) {
+    pthread_mutex_unlock(&table_locks[i]);
+  }
+  pthread_mutex_unlock(&rcount_mutexs[i]);
 
   return e;
 }
@@ -114,6 +156,10 @@ main(int argc, char *argv[])
   for (int i = 0; i < NKEYS; i++) {
     keys[i] = random();
   }
+
+  // BEGIN LAB THREAD
+  init_locks();
+  // END LAB THREAD
 
   //
   // first the puts
