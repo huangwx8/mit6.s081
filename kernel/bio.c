@@ -35,7 +35,6 @@ struct {
 #define HASH_TABLE_SIZE 65537
 #define HASH_FUNC(dev, blockno) (((dev + 7) * (blockno + 11) + 57) % HASH_TABLE_SIZE)
   int key2bidx[HASH_TABLE_SIZE];
-  int bidx2key[NBUF];
   uint timestamp[NBUF];
   
   struct spinlock buflocks[NBUF];
@@ -43,15 +42,6 @@ struct {
 
 void addkey(uint64 key, int bindex) {
   bcache.key2bidx[key] = bindex;
-  bcache.bidx2key[bindex] = key;
-}
-
-void delkey(int bindex) {
-  uint64 key = bcache.bidx2key[bindex];
-  if (key != -1) {
-    bcache.key2bidx[key] = -1;
-    bcache.bidx2key[bindex] = -1;
-  }
 }
 
 uint64 findevictee() {
@@ -103,7 +93,6 @@ binit(void)
   for (int i = 0; i < HASH_TABLE_SIZE; i++)
     bcache.key2bidx[i] = -1;
   for (int i = 0; i < NBUF; i++) {
-    bcache.bidx2key[i] = -1;
     bcache.timestamp[i] = 0;
     initlock(&bcache.buflocks[i], "bcache");
   }
@@ -115,7 +104,6 @@ binit(void)
 static struct buf*
 bget(uint dev, uint blockno)
 {
-  //printf("bget dev = %d, blockno = %d\n", dev, blockno);
   struct buf *b;
 
   //acquire(&bcache.lock);
@@ -134,8 +122,11 @@ bget(uint dev, uint blockno)
   if ((bindex = bcache.key2bidx[key]) != -1) {
     acquire(&bcache.buflocks[bindex]);
     b = &bcache.buf[bindex];
-    if (b->dev != dev || b->blockno != blockno)
-      panic("hash conflict");
+    if (b->dev != dev || b->blockno != blockno) {
+      // my block evicted by others
+      release(&bcache.buflocks[bindex]);
+      goto notcached;
+    }
     b->refcnt++;
     release(&bcache.buflocks[bindex]);
     //release(&bcache.lock);
@@ -157,9 +148,28 @@ bget(uint dev, uint blockno)
     }
   }*/
 
-  bindex = findevictee(); // could implictly acquire evictee's lock here
+notcached:
+  acquire(&bcache.lock); // use global lock to serialize eviction operation
+
+  // check again for invariant that at most one copy of each block is cached
+  if ((bindex = bcache.key2bidx[key]) != -1) { 
+    acquire(&bcache.buflocks[bindex]);
+    b = &bcache.buf[bindex];
+    if (b->dev != dev || b->blockno != blockno) {
+      // my block evicted by others
+      release(&bcache.buflocks[bindex]);
+      goto eviction;
+    }
+    b->refcnt++;
+    release(&bcache.buflocks[bindex]);
+    release(&bcache.lock);
+    acquiresleep(&b->lock);
+    return b;
+  }
+
+eviction:
+  bindex = findevictee(); // this line could implictly acquire evictee's lock here
   if (bindex != -1) {
-    delkey(bindex);
     addkey(key, bindex);
     b = &bcache.buf[bindex];
     b->dev = dev;
@@ -167,7 +177,7 @@ bget(uint dev, uint blockno)
     b->valid = 0;
     b->refcnt = 1;
     release(&bcache.buflocks[bindex]);
-    //release(&bcache.lock);
+    release(&bcache.lock);
     acquiresleep(&b->lock);
     return b;
   }
