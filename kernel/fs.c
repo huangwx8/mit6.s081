@@ -464,7 +464,7 @@ itrunc(struct inode *ip)
     a = (uint*)bp->data;
     for(j = 0; j < NINDIRECT; j++) {
       if(a[j]) {
-        bp2 = bread(ip->dev, ip->addrs[NDIRECT + 1]);
+        bp2 = bread(ip->dev, a[j]);
         a2 = (uint*)bp2->data;
         for(int k = 0; k < NINDIRECT; k++) {
           if (a2[k])
