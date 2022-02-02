@@ -185,3 +185,15 @@ void            virtio_disk_intr(void);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
+
+// BEGIN LAB MMAP
+struct vma_t;
+#define MMAPBASE 0x40000000L
+uint64          mmapalloc(pagetable_t, uint64, uint64);
+uint64          munmap_impl(struct proc*, uint64, int);
+void            mmapunmap(pagetable_t, uint64, uint64);
+void*           allocvma();
+uint64          selectvma(int); 
+void*           va2vma(struct vma_t*, uint64);
+int             copyprocvma(pagetable_t, struct vma_t*, struct vma_t*);
+// END LAB MMAP

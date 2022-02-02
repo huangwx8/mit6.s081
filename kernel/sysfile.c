@@ -484,3 +484,113 @@ sys_pipe(void)
   }
   return 0;
 }
+
+uint64
+sys_mmap(void)
+{
+  uint64 addr;
+  int length, prot, flags, fd, offset;
+  struct proc *p = myproc();
+  struct file* f;
+  struct vma_t* vma;
+
+  if(argaddr(0, &addr) < 0 ||
+    argint(1, &length) < 0 ||
+    argint(2, &prot) < 0 ||
+    argint(3, &flags) < 0 ||
+    argint(4, &fd) < 0 ||
+    argint(5, &offset) < 0)
+  {
+    return -1;
+  }
+
+  // iargs assert
+  if (addr != 0)
+    panic("mmap addr");
+  if (fd < 0)
+    panic("mmap fd");
+  if (length <= 0 || length != PGROUNDUP(length))
+    panic("mmap length");
+  if (offset != 0)
+    panic("mmap offset");
+
+  if ((vma = (struct vma_t*)allocvma()) == 0)
+    panic("mmap alloc");
+  if ((addr = selectvma(length)) == 0)
+    panic("mmap selectrange");
+  if ((f = p->ofile[fd]) == 0)
+    panic("mmap ofile");
+
+  // permission check
+  if ((flags & MAP_SHARED) && (prot & PROT_WRITE) && (f->writable == 0))
+    return -1;
+
+  // lazy allocation
+  if (mmapalloc(p->pagetable, addr, addr + length) == 0)
+    return -1;
+
+  vma->addr = addr;
+  vma->len = length;
+  vma->file = filedup(f);
+  vma->prot = prot;
+  vma->flags = flags;
+  vma->offset = 0;
+  
+  return addr;
+}
+
+uint64
+munmap_impl(struct proc *p, uint64 addr, int length)
+{
+  struct vma_t* vma;
+  struct inode *ip;
+
+  if (length <= 0 || length != PGROUNDUP(length))
+    panic("munmap length");
+  if ((vma = (struct vma_t*)va2vma(p->vmas, addr)) == 0)
+    panic("munmap va2vma");
+  if (vma->addr != addr)
+    panic("munmap not implemented");
+
+  if ((vma->flags & MAP_SHARED) && (p == myproc()))
+  {
+    begin_op();
+    ip = vma->file->ip;
+    ilock(ip);
+    if(writei(ip, 1, addr, vma->offset, length) == -1)
+      panic("munmap: writei");
+    iunlock(ip);
+    end_op();
+  }
+
+  mmapunmap(p->pagetable, addr, length);
+
+  vma->addr = addr + length;
+  vma->len -= length;
+  vma->offset += length;
+
+  if (vma->len == 0) // delete
+  {
+    vma->addr = 0;
+    fileclose(vma->file);
+    vma->prot = 0;
+    vma->flags = 0;
+  }
+
+  return 0;
+}
+
+uint64
+sys_munmap(void)
+{
+  uint64 addr;
+  int length;
+
+  if(argaddr(0, &addr) < 0 ||
+    argint(1, &length) < 0)
+  {
+    return -1;
+  }
+
+  return munmap_impl(myproc(), addr, length);
+}

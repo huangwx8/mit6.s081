@@ -429,3 +429,50 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+// BEGIN LAB MMAP
+uint64
+mmapalloc(pagetable_t pagetable, uint64 begin, uint64 end)
+{
+  char *mem = 0;
+  uint64 a;
+  pte_t *pte;
+
+  if(end < begin)
+    return 0;
+
+  begin = PGROUNDDOWN(begin);
+  for(a = begin; a < end; a += PGSIZE){
+    if((pte = walk(pagetable, a, 1)) == 0)
+      return 0;
+    if(*pte & PTE_V)
+      panic("realloc");
+    *pte = PA2PTE(mem) | PTE_W | PTE_X | PTE_R | PTE_U /*| PTE_V*/;
+  }
+  return end;
+}
+
+void
+mmapunmap(pagetable_t pagetable, uint64 va, uint64 n)
+{
+  uint64 a;
+  pte_t *pte;
+
+  if((va % PGSIZE) != 0)
+    panic("mmapunmap: not aligned");
+
+  for(a = va; a < va + n; a += PGSIZE){
+    if((pte = walk(pagetable, a, 0)) == 0)
+      panic("mmapunmap: walk");
+    if((*pte & PTE_V) == 0) {
+      *pte = 0;
+      continue;
+    }
+    if(PTE_FLAGS(*pte) == PTE_V)
+      panic("mmapunmap: not a leaf");
+    uint64 pa = PTE2PA(*pte);
+    kfree((void*)pa);
+    *pte = 0;
+  }
+}
+// END LAB MMAP

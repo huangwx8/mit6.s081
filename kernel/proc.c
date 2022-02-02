@@ -21,6 +21,10 @@ static void freeproc(struct proc *p);
 
 extern char trampoline[]; // trampoline.S
 
+// BEGIN LAB MMAP
+extern void freevma(struct proc *p);
+// END LAB MMAP
+
 
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
@@ -280,6 +284,13 @@ fork(void)
     release(&np->lock);
     return -1;
   }
+  // BEGIN LAB MMAP
+  if (copyprocvma(np->pagetable, p->vmas, np->vmas) < 0){
+    freeproc(np);
+    release(&np->lock);
+    return -1;
+  }
+  // END LAB MMAP
   np->sz = p->sz;
 
   np->parent = p;
@@ -343,6 +354,10 @@ exit(int status)
 
   if(p == initproc)
     panic("init exiting");
+
+  // BEGIN LAB MMAP
+  freevma(p);
+  // END LAB MMAP
 
   // Close all open files.
   for(int fd = 0; fd < NOFILE; fd++){
@@ -701,3 +716,108 @@ procdump(void)
     printf("\n");
   }
 }
+
+// BEGIN LAB MMAP
+
+void*
+allocvma() 
+{
+  struct vma_t* vmas = myproc()->vmas;
+  for (int i = 0; i < MAXVMA; i++) {
+    if (vmas[i].addr == 0)
+      return &vmas[i];
+  }
+  return 0;
+}
+
+static int vmaoverlap(uint64 addr1, int len1, uint64 addr2, int len2)
+{
+  int begin1 = PGROUNDDOWN(addr1);
+  int end1 = PGROUNDUP(addr1 + len1);
+  int begin2 = PGROUNDDOWN(addr2);
+  int end2 = PGROUNDUP(addr2 + len2);
+
+  return (end1 > begin2) && (end2 > begin1);
+}
+
+uint64
+selectvma(int len) 
+{
+  struct vma_t* vmas = myproc()->vmas;
+  uint64 addr = MMAPBASE;
+  int i;
+
+  if (allocvma() == 0) // no free vma block
+    return 0;
+
+  for (i = 0; i < MAXVMA; ) {
+    if (vmas[i].addr != 0 && 
+        vmaoverlap(addr, len, vmas[i].addr, vmas[i].len))
+    {
+      addr = PGROUNDUP(vmas[i].addr + vmas[i].len);
+      if (addr >= MAXVA) // no free area
+        return 0;
+      i = 0;
+      continue;
+    }
+    else {
+      i++;
+    }
+  }
+
+  return addr;
+}
+
+void*
+va2vma(struct vma_t* vmas, uint64 va) 
+{
+  for (int i = 0; i < MAXVMA; i++) {
+    if (vmas[i].addr <= va && (vmas[i].addr + vmas[i].len) > va) {
+      return &vmas[i];
+    }
+  }
+  return 0;
+}
+
+void
+freevma(struct proc *p)
+{
+  struct vma_t* vmas = p->vmas;
+
+  for (int i = 0; i < MAXVMA; i++) {
+    if (vmas[i].addr != 0)
+    {
+      munmap_impl(p, vmas[i].addr, vmas[i].len);
+    }
+  }
+}
+
+int 
+copyvma(pagetable_t pgtbl, struct vma_t* oldvmas, struct vma_t* newvmas)
+{
+  newvmas->addr = oldvmas->addr;
+  newvmas->len = oldvmas->len;
+  newvmas->prot = oldvmas->prot;
+  newvmas->flags = oldvmas->flags;
+  newvmas->offset = oldvmas->offset;
+  newvmas->file = filedup(oldvmas->file);
+
+  if (mmapalloc(pgtbl, newvmas->addr, newvmas->addr + newvmas->len) == 0)
+    return -1;
+
+  return 0;
+}
+
+int
+copyprocvma(pagetable_t pgtbl, struct vma_t* oldvmas, struct vma_t* newvmas)
+{
+  for (int i = 0; i < MAXVMA; i++) {
+    if (oldvmas[i].addr != 0) {
+      if (copyvma(pgtbl, &oldvmas[i], &newvmas[i]) == -1)
+        return -1;
+    }
+  }
+  return 0;
+}
+
+// END LAB MMAP

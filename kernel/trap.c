@@ -16,6 +16,10 @@ void kernelvec();
 
 extern int devintr();
 
+// BEGIN LAB MMAP
+extern int uvmintr();
+// END LAB MMAP
+
 void
 trapinit(void)
 {
@@ -67,7 +71,14 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  }
+  // BEGIN LAB MMAP
+  else if (r_scause() == 13 || r_scause() == 15) {
+    if (uvmintr() != 0) 
+      p->killed = 1;
+  }
+  // END LAB MMAP
+  else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
@@ -218,3 +229,73 @@ devintr()
   }
 }
 
+
+// BEGIN LAB MMAP
+#include "types.h"
+#include "param.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
+#include "fcntl.h"
+int
+uvmintr()
+{
+  struct proc *p = myproc();
+  struct vma_t* vma;
+  struct inode *ip;
+  char *mem;
+  uint64 va = r_stval();
+  uint64 sp = p->trapframe->sp;
+
+  if (va >= MAXVA ||
+     (va < sp && va >= PGROUNDDOWN(sp)- PGSIZE)) // hard coded stack test
+    return -1;
+  
+  if ((vma = (struct vma_t*)va2vma(p->vmas, va)) == 0)
+    return -1;
+
+  if ((mem = kalloc()) == 0)
+    return -1;
+  memset(mem, 0, PGSIZE);
+
+  begin_op();
+  ip = vma->file->ip;
+  if (!ip || ip->ref == 0)
+    return -1;
+  ilock(ip);
+  
+  uint64 va0 = PGROUNDDOWN(va);
+  uint64 memoff = 0;
+  uint64 readoff = va - vma->addr;
+  uint64 readsz = PGSIZE;
+  if (vma->addr > va0) {
+    memoff = vma->addr - va0;
+    readsz = readsz - memoff;
+  }
+
+  if(readi(ip, 0, (uint64)(mem + memoff), readoff, readsz) == 0) {
+    iunlock(ip);
+    end_op();
+    kfree(mem);
+    return -1;
+  }
+
+  iunlock(ip);
+  end_op();
+
+  int perm = PTE_U;
+  if (p->vmas->prot & PROT_READ)
+    perm |= PTE_R;
+  if (p->vmas->prot & PROT_WRITE)
+    perm |= PTE_W;
+  if (p->vmas->prot & PROT_EXEC)
+    perm |= PTE_X;
+
+  if(mappages(p->pagetable, va0, PGSIZE, (uint64)mem, perm) != 0){
+    kfree(mem);
+    return -1;
+  }
+
+  return 0;
+}
+// END LAB MMAP
